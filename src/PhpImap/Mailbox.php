@@ -401,11 +401,16 @@ class Mailbox {
 	 * Get mail data
 	 *
 	 * @param $mailId
+         * @param $mailAttachmentsDir Mail specific attachments directory
 	 * @return IncomingMail
 	 */
-	public function getMail($mailId) {
+	public function getMail($mailId, $mailAttachmentsDir=false) {
 		$head = imap_rfc822_parse_headers(imap_fetchheader($this->getImapStream(), $mailId, FT_UID));
 
+                if($mailAttachmentsDir===false) {
+                    $mailAttachmentsDir = $this->attachmentsDir;
+                } 
+                
 		$mail = new IncomingMail();
 		$mail->id = $mailId;
 		$mail->date = date('Y-m-d H:i:s', isset($head->date) ? strtotime(preg_replace('/\(.*?\)/', '', $head->date)) : time());
@@ -441,18 +446,18 @@ class Mailbox {
 		$mailStructure = imap_fetchstructure($this->getImapStream(), $mailId, FT_UID);
 
 		if(empty($mailStructure->parts)) {
-			$this->initMailPart($mail, $mailStructure, 0);
+			$this->initMailPart($mail, $mailStructure, 0, $mailAttachmentsDir);
 		}
 		else {
 			foreach($mailStructure->parts as $partNum => $partStructure) {
-				$this->initMailPart($mail, $partStructure, $partNum + 1);
+				$this->initMailPart($mail, $partStructure, $partNum + 1, $mailAttachmentsDir);
 			}
 		}
 
 		return $mail;
 	}
 
-	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum) {
+	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum, $mailAttachmentsDir=false) {
 		$data = $partNum ? imap_fetchbody($this->getImapStream(), $mail->id, $partNum, FT_UID) : imap_body($this->getImapStream(), $mail->id, FT_UID);
 
 		if($partStructure->encoding == 1) {
@@ -503,7 +508,7 @@ class Mailbox {
 			$attachment = new IncomingMailAttachment();
 			$attachment->id = $attachmentId;
 			$attachment->name = $fileName;
-			if($this->attachmentsDir) {
+			if($mailAttachmentsDir) {
 				$replace = array(
 					'/\s/' => '_',
 					'/[^0-9a-zа-яіїє_\.]/iu' => '',
@@ -511,7 +516,7 @@ class Mailbox {
 					'/(^_)|(_$)/' => '',
 				);
 				$fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
-				$attachment->filePath = $this->attachmentsDir . DIRECTORY_SEPARATOR . $fileSysName;
+				$attachment->filePath = $mailAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName;
 				file_put_contents($attachment->filePath, $data);
 			}
 			$mail->addAttachment($attachment);
@@ -535,10 +540,10 @@ class Mailbox {
 		if(!empty($partStructure->parts)) {
 			foreach($partStructure->parts as $subPartNum => $subPartStructure) {
 				if($partStructure->type == 2 && $partStructure->subtype == 'RFC822') {
-					$this->initMailPart($mail, $subPartStructure, $partNum);
+					$this->initMailPart($mail, $subPartStructure, $partNum, $mailAttachmentsDir);
 				}
 				else {
-					$this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1));
+					$this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1), $mailAttachmentsDir);
 				}
 			}
 		}
