@@ -9,6 +9,7 @@ class IncomingMail {
 	public $id;
 	public $date;
 	public $subject;
+        public $messageId;
 
 	public $fromName;
 	public $fromAddress;
@@ -27,6 +28,10 @@ class IncomingMail {
 		$this->attachments[$attachment->id] = $attachment;
 	}
 
+        public function getMessageUID() {
+            return md5(implode('', [$this->messageId, $this->date, $this->subject, $this->fromAddress]));
+        }  
+        
 	/**
 	 * @return IncomingMailAttachment[]
 	 */

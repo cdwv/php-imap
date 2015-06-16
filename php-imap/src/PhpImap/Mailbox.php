@@ -8,6 +8,8 @@ use stdClass;
  */
 class Mailbox {
 
+        const ATT_FOLDER = 'attachments';
+    
 	protected $imapPath;
 	protected $imapLogin;
 	protected $imapPassword;
@@ -22,13 +24,12 @@ class Mailbox {
 		$this->imapLogin = $login;
 		$this->imapPassword = $password;
 		$this->serverEncoding = strtoupper($serverEncoding);
-		if($attachmentsDir) {
-			if(!is_dir($attachmentsDir)) {
-				throw new Exception('Directory "' . $attachmentsDir . '" not found');
-			}
-			$this->attachmentsDir = rtrim(realpath($attachmentsDir), '\\/');
-		}
+                $this->attachmentsDir = $attachmentsDir;
 	}
+        
+        public function getImapLogin() {
+            return $this->imapLogin;
+        }
 
 	/**
 	 * Set custom connection arguments of imap_open method. See http://php.net/imap_open
@@ -182,6 +183,17 @@ class Mailbox {
 	public function saveMail($mailId, $filename = 'email.eml') {
 		return imap_savebody($this->getImapStream(), $filename, $mailId, "", FT_UID);
 	}
+        
+	/**
+	 * Save mail body.
+	 * @return bool
+	 */
+	public function saveMailObject(IncomingMail $mail, $filename = 'email.eml') {
+            
+            $dir = $this->getMailDir($mail);
+            $path = implode(DIRECTORY_SEPARATOR, [$dir, $filename]);
+            return imap_savebody($this->getImapStream(), $path, $mail->id, "", FT_UID);
+	}
 
 	/**
 	 * Marks mails listed in mailId for deletion.
@@ -259,7 +271,11 @@ class Mailbox {
 	 * @return bool
 	 */
 	public function setFlag(array $mailsIds, $flag) {
+            if(count($mailsIds)) {
 		return imap_setflag_full($this->getImapStream(), implode(',', $mailsIds), $flag, ST_UID);
+            } else {
+                return true;
+            }
 	}
 
 	/**
@@ -270,7 +286,11 @@ class Mailbox {
 	 * @return bool
 	 */
 	public function clearFlag(array $mailsIds, $flag) {
+            if(count($mailsIds)) {
 		return imap_clearflag_full($this->getImapStream(), implode(',', $mailsIds), $flag, ST_UID);
+            } else {
+                return true;
+            }
 	}
 
 	/**
@@ -401,23 +421,24 @@ class Mailbox {
 	 * Get mail data
 	 *
 	 * @param $mailId
-         * @param $mailAttachmentsDir Mail specific attachments directory
 	 * @return IncomingMail
 	 */
-	public function getMail($mailId, $mailAttachmentsDir=false) {
+	public function getMail($mailId, $onlyHeaders=false) {
 		$head = imap_rfc822_parse_headers(imap_fetchheader($this->getImapStream(), $mailId, FT_UID));
-
-                if($mailAttachmentsDir===false) {
-                    $mailAttachmentsDir = $this->attachmentsDir;
-                } 
                 
 		$mail = new IncomingMail();
 		$mail->id = $mailId;
+                $mail->messageId = $head->message_id;
 		$mail->date = date('Y-m-d H:i:s', isset($head->date) ? strtotime(preg_replace('/\(.*?\)/', '', $head->date)) : time());
 		$mail->subject = isset($head->subject) ? $this->decodeMimeStr($head->subject, $this->serverEncoding) : null;
 		$mail->fromName = isset($head->from[0]->personal) ? $this->decodeMimeStr($head->from[0]->personal, $this->serverEncoding) : null;
 		$mail->fromAddress = strtolower($head->from[0]->mailbox . '@' . $head->from[0]->host);
-
+                
+                if($onlyHeaders) {
+                    return $mail;
+                }
+                
+                
 		if(isset($head->to)) {
 			$toStrings = array();
 			foreach($head->to as $to) {
@@ -434,7 +455,7 @@ class Mailbox {
 		if(isset($head->cc)) {
 			foreach($head->cc as $cc) {
 				$mail->cc[strtolower($cc->mailbox . '@' . $cc->host)] = isset($cc->personal) ? $this->decodeMimeStr($cc->personal, $this->serverEncoding) : null;
-			}
+                        }
 		}
 
 		if(isset($head->reply_to)) {
@@ -446,18 +467,18 @@ class Mailbox {
 		$mailStructure = imap_fetchstructure($this->getImapStream(), $mailId, FT_UID);
 
 		if(empty($mailStructure->parts)) {
-			$this->initMailPart($mail, $mailStructure, 0, $mailAttachmentsDir);
+			$this->initMailPart($mail, $mailStructure, 0);
 		}
 		else {
 			foreach($mailStructure->parts as $partNum => $partStructure) {
-				$this->initMailPart($mail, $partStructure, $partNum + 1, $mailAttachmentsDir);
+				$this->initMailPart($mail, $partStructure, $partNum + 1);
 			}
 		}
 
 		return $mail;
 	}
 
-	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum, $mailAttachmentsDir=false) {
+	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum) {
 		$data = $partNum ? imap_fetchbody($this->getImapStream(), $mail->id, $partNum, FT_UID) : imap_body($this->getImapStream(), $mail->id, FT_UID);
 
 		if($partStructure->encoding == 1) {
@@ -508,16 +529,19 @@ class Mailbox {
 			$attachment = new IncomingMailAttachment();
 			$attachment->id = $attachmentId;
 			$attachment->name = $fileName;
-			if($mailAttachmentsDir) {
-				$replace = array(
-					'/\s/' => '_',
-					'/[^0-9a-zа-яіїє_\.]/iu' => '',
-					'/_+/' => '_',
-					'/(^_)|(_$)/' => '',
-				);
-				$fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
-				$attachment->filePath = $mailAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName;
-				file_put_contents($attachment->filePath, $data);
+			if($this->attachmentsDir) {
+                            $parsedAttachmentsDir = $this->getMailAttachmentsDir($mail);
+                            if($parsedAttachmentsDir) {
+                                $replace = array(
+                                        '/\s/' => '_',
+                                        '/[^0-9a-zа-яіїє_\.]/iu' => '',
+                                        '/_+/' => '_',
+                                        '/(^_)|(_$)/' => '',
+                                );
+                                $fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
+                                $attachment->filePath =  self::ATT_FOLDER . DIRECTORY_SEPARATOR . $fileSysName;
+                                file_put_contents($parsedAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName, $data);
+                            }
 			}
 			$mail->addAttachment($attachment);
 		}
@@ -540,10 +564,10 @@ class Mailbox {
 		if(!empty($partStructure->parts)) {
 			foreach($partStructure->parts as $subPartNum => $subPartStructure) {
 				if($partStructure->type == 2 && $partStructure->subtype == 'RFC822') {
-					$this->initMailPart($mail, $subPartStructure, $partNum, $mailAttachmentsDir);
+					$this->initMailPart($mail, $subPartStructure, $partNum);
 				}
 				else {
-					$this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1), $mailAttachmentsDir);
+					$this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1));
 				}
 			}
 		}
@@ -599,6 +623,28 @@ class Mailbox {
 	public function __destruct() {
 		$this->disconnect();
 	}
+        
+        public function getMailDir(\PhpImap\IncomingMail $mail) {
+            
+            $path = implode(DIRECTORY_SEPARATOR, [
+                $this->attachmentsDir, 
+                $this->imapLogin, 
+                $mail->getMessageUID()]);
+            
+            if(!file_exists($path)) {
+                mkdir($path, 0777, true);
+            } 
+            return $path;
+        }
+        
+        public function getMailAttachmentsDir(\PhpImap\IncomingMail $mail) {
+            $attPath = implode(DIRECTORY_SEPARATOR, [$this->getMailDir($mail), self::ATT_FOLDER]);
+            if(!file_exists($attPath)) {
+                mkdir($attPath, 0777, true);
+            } 
+            return $attPath;
+        }
+        
 }
 
 class Exception extends \Exception {
