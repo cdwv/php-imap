@@ -527,7 +527,7 @@ class Mailbox {
 				$fileName = $this->decodeRFC2231($fileName, $this->serverEncoding);
 			}
 			$attachment = new IncomingMailAttachment();
-			$attachment->id = $attachmentId;
+			$attachment->id = str_replace('.', '_', $attachmentId);
 			$attachment->name = $fileName;
 			if($this->attachmentsDir) {
                             $parsedAttachmentsDir = $this->getMailAttachmentsDir($mail);
