@@ -18,6 +18,7 @@ class Mailbox {
 	protected $imapParams = array();
 	protected $serverEncoding;
 	protected $attachmentsDir;
+        protected $attCount = 0;
 
 	public function __construct($imapPath, $login, $password, $attachmentsDir = null, $serverEncoding = 'UTF-8') {
 		$this->imapPath = $imapPath;
@@ -318,23 +319,23 @@ class Mailbox {
 	 * @return array
 	 */
 	public function getMailsInfo(array $mailsIds) {
-		$mails = imap_fetch_overview($this->getImapStream(), implode(',', $mailsIds), FT_UID);
-		if(is_array($mails) && count($mails))
-		{
-			foreach($mails as &$mail)
-			{
-				if(isset($mail->subject)) {
-					$mail->subject = $this->decodeMimeStr($mail->subject, $this->serverEncoding);
-				}
-				if(isset($mail->from)) {
-					$mail->from = $this->decodeMimeStr($mail->from, $this->serverEncoding);
-				}
-				if(isset($mail->to)) {
-					$mail->to = $this->decodeMimeStr($mail->to, $this->serverEncoding);
-				}
-			}
-		}
-		return $mails;
+            $mails = imap_fetch_overview($this->getImapStream(), implode(',', $mailsIds), FT_UID);
+            if(is_array($mails) && count($mails))
+            {
+                foreach($mails as &$mail)
+                {
+                    if(isset($mail->subject)) {
+                        $mail->subject = $this->decodeMimeStr($mail->subject, $this->serverEncoding);
+                    }
+                    if(isset($mail->from)) {
+                        $mail->from = $this->decodeMimeStr($mail->from, $this->serverEncoding);
+                    }
+                    if(isset($mail->to)) {
+                        $mail->to = $this->decodeMimeStr($mail->to, $this->serverEncoding);
+                    }
+                }
+            }
+            return $mails;
 	}
 
 	/**
@@ -466,22 +467,22 @@ class Mailbox {
 
 		$mailStructure = imap_fetchstructure($this->getImapStream(), $mailId, FT_UID);
 
-		if(empty($mailStructure->parts)) {
+		if(empty($mailStructure->parts)) {                 
 			$this->initMailPart($mail, $mailStructure, 0);
 		}
 		else {
-			foreach($mailStructure->parts as $partNum => $partStructure) {
-				$this->initMailPart($mail, $partStructure, $partNum + 1);
-			}
-		}
+                    foreach($mailStructure->parts as $partNum => $partStructure) {
+                            $this->initMailPart($mail, $partStructure, $partNum + 1);
+                            }
+                    }
 
 		return $mail;
 	}
 
-	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum) {
+	protected function initMailPart(IncomingMail $mail, $partStructure, $partNum) { 
 		$data = $partNum ? imap_fetchbody($this->getImapStream(), $mail->id, $partNum, FT_UID) : imap_body($this->getImapStream(), $mail->id, FT_UID);
-
-		if($partStructure->encoding == 1) {
+                
+                if($partStructure->encoding == 1) {
 			$data = imap_utf8($data);
 		}
 		elseif($partStructure->encoding == 2) {
@@ -511,21 +512,30 @@ class Mailbox {
 				}
 			}
 		}
-
+                
 		// attachments
 		$attachmentId = $partStructure->ifid
 			? trim($partStructure->id, " <>")
 			: (isset($params['filename']) || isset($params['name']) ? mt_rand() . mt_rand() : null);
 
-		if($attachmentId) {
+                // don't have name/filename but have disposition=attachment - part is a file
+                if($attachmentId === null && $partStructure->ifdisposition) {
+                     if($partStructure->disposition === 'attachment') {
+                        $attachmentId = 'attachment'.(++$this->attCount);                        
+                     } 
+                }
+                
+		if($attachmentId) {  
 			if(empty($params['filename']) && empty($params['name'])) {
-				$fileName = $attachmentId . '.' . strtolower($partStructure->subtype);
+				$fileName = $attachmentId.'.';
+                                $fileName .= ($partStructure->subtype==='RFC822') ? 'mht' : strtolower($partStructure->subtype);
 			}
 			else {
 				$fileName = !empty($params['filename']) ? $params['filename'] : $params['name'];
 				$fileName = $this->decodeMimeStr($fileName, $this->serverEncoding);
 				$fileName = $this->decodeRFC2231($fileName, $this->serverEncoding);
 			}
+                        
 			$attachment = new IncomingMailAttachment();
 			$attachment->name = $fileName;
 			if($this->attachmentsDir) {
@@ -567,7 +577,7 @@ class Mailbox {
 					$this->initMailPart($mail, $subPartStructure, $partNum);
 				}
 				else {
-					$this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1));
+                                    $this->initMailPart($mail, $subPartStructure, $partNum . '.' . ($subPartNum + 1));
 				}
 			}
 		}
