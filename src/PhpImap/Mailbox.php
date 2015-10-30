@@ -525,35 +525,51 @@ class Mailbox {
                      } 
                 }
                 
-		if($attachmentId) {  
+		if($attachmentId) {
+                    
+                        $fileNames = [];
+                    
 			if(empty($params['filename']) && empty($params['name'])) {
-				$fileName = $attachmentId.'.';
-                                $fileName .= ($partStructure->subtype==='RFC822') ? 'mht' : strtolower($partStructure->subtype);
+				$name = $attachmentId.'.';
+                                if($partStructure->subtype==='RFC822')  {
+                                    $emlName = $name . 'mht';
+                                    $mhtName = $name . 'eml';
+                                    $fileNames[] = $emlName;
+                                    $fileNames[] = $mhtName;
+                                } else {
+                                    $attName =  $name.strtolower($partStructure->subtype); 
+                                    $fileNames[] = $attName;
+                                }
+                                
 			}
 			else {
-				$fileName = !empty($params['filename']) ? $params['filename'] : $params['name'];
-				$fileName = $this->decodeMimeStr($fileName, $this->serverEncoding);
-				$fileName = $this->decodeRFC2231($fileName, $this->serverEncoding);
+				$name = !empty($params['filename']) ? $params['filename'] : $params['name'];
+				$name = $this->decodeMimeStr($name, $this->serverEncoding);
+				$name = $this->decodeRFC2231($name, $this->serverEncoding);
+                                $fileNames[] = $name;
 			}
                         
-			$attachment = new IncomingMailAttachment();
-			$attachment->name = $fileName;
-			if($this->attachmentsDir) {
-                            $parsedAttachmentsDir = $this->getMailAttachmentsDir($mail);
-                            if($parsedAttachmentsDir) {
-                                $replace = array(
-                                        '/\s/' => '_',
-                                        '/[^0-9a-zа-яіїє_\.]/iu' => '',
-                                        '/_+/' => '_',
-                                        '/(^_)|(_$)/' => '',
-                                );
-                                $fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
-                                $attachment->filePath =  self::ATT_FOLDER;
-                                $attachment->id = $fileSysName;
-                                file_put_contents($parsedAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName, $data);
+                        foreach($fileNames as $fileName) {
+                        
+                            $attachment = new IncomingMailAttachment();
+                            $attachment->name = $fileName;
+                            if($this->attachmentsDir) {
+                                $parsedAttachmentsDir = $this->getMailAttachmentsDir($mail);
+                                if($parsedAttachmentsDir) {
+                                    $replace = array(
+                                            '/\s/' => '_',
+                                            '/[^0-9a-zа-яіїє_\.]/iu' => '',
+                                            '/_+/' => '_',
+                                            '/(^_)|(_$)/' => '',
+                                    );
+                                    $fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
+                                    $attachment->filePath =  self::ATT_FOLDER;
+                                    $attachment->id = $fileSysName;
+                                    file_put_contents($parsedAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName, $data);
+                                }
                             }
-			}
-			$mail->addAttachment($attachment);
+                            $mail->addAttachment($attachment);
+                        }
 		}
 		else {
 			if(!empty($params['charset'])) {
