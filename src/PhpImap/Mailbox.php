@@ -551,6 +551,14 @@ class Mailbox {
                         
                         foreach($fileNames as $fileName) {
                         
+                            //SUBSTR if too long
+                            if(strlen($fileName)>100) {
+                                $fileNameExploded = explode('.',$fileName);
+                                $ext = array_pop($fileNameExploded);
+                                $newFileName = substr(implode('.',$fileNameExploded), 0, 100);
+                                $fileName = $newFileName.'.'.$ext;
+                            }
+
                             $attachment = new IncomingMailAttachment();
                             $attachment->name = $fileName;
                             if($this->attachmentsDir) {
