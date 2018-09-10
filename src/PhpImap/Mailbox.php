@@ -577,6 +577,7 @@ class Mailbox {
                                             '/(^_)|(_$)/' => '',
                                     );
                                     $fileSysName = preg_replace('~[\\\\/]~', '', $mail->id . '_' . $attachmentId . '_' . preg_replace(array_keys($replace), $replace, $fileName));
+				    $fileSysName = hash('sha256', $fileSysName);
                                     $attachment->filePath =  self::ATT_FOLDER;
                                     $attachment->id = $fileSysName;
                                     file_put_contents($parsedAttachmentsDir . DIRECTORY_SEPARATOR . $fileSysName, $data);
